@@ -1,0 +1,174 @@
+---
+title: "ch02. 데이터 전처리와 모형평가"
+author: "Jeong-Eun Lee"
+date: '2021 9 8 '
+output: html_document
+---
++ 데이터 전처리 : R의 {caret} 패키지(단, 모든 데이터는 수치형으로 가정)
+
+### 2.2.1 영-과 영근처-분산 예측변수의 처리
++ 예제 1. 
+```{r}
+library(caret)
+data(mdrr)
+data.frame(table(mdrrDescr$nR11))
+```
+
++ 다중약물내성 자료(528개 관측치, 342개 변수)
++ 데이터가 매우 불균형 & 몇 개의 수치만을 취함
++ 이러한 예측변수의 문제점 : 교차타당성/붓스트랩 하위 샘플로 분할될 때 영-분산 예측변수가 되거나, 일부 샘플이 모형에 과도한 영향을 미침 
+  + -> 모형화 이전에 식별되고 제거 필요
++ 영-분산 예측변수 식별 측도 : 아래의 두 기준을 모두 사용하면 위험성을 줄일 수 있음
+  1) 빈도비율 : (일순위 빈발값의 빈도) / (차순위 빈발값의 빈도)
+  + 정상적 - 1에 가까움, 불균형 - 매우 큰 값
+  + 현재 data : 501 / 23
+  
+  2) 유일 값들의 비율 : (유일한 값들의 수) / (전체 표본의 수) * 100
+  + 집중도 클수록 0에 가까움
+  + 현재 data : (1) 501 / 528 * 100   (2) 4 / 528 * 100   (3) 23 / 528 * 100
+  
+```{r}
+nzv = nearZeroVar(mdrrDescr, saveMetrics = TRUE)
+str(nzv);
+nzv[nzv$nzv, ][1:10, ]  # nzv의 nzv 변수를 가져와서 처음 10개만 출력
+dim(mdrrDescr)
+nzv = nearZeroVar(mdrrDescr)
+nzv
+
+filteredDescr = mdrrDescr[, -nzv]  # 영근처- 분산을 가지는 변수 제거
+dim(filteredDescr)  # (342 - 297)개 삭제
+```
+
++ nearZeroVar() 함수 : 영근처-분산의 변수 식별, 문제가 되는 변수의 위치를 반환
+  + 디폴트 : 표본에서 유일 값의 비율이 10% 이하이고 빈도비율이 19(95/5)보다 큰 예측변수는 영-근처 분산으로 분류됨
+  
+
+### 2.2.2 상관된 예측변수의 식별 : 중복변수 제거
++ 다중공선성의 영향을 고려하여 예측변수들 간의 상관관계의 수준은 줄이는 것이 좋다.
++ 예제 2.
+```{r}
+descrCor = cor(filteredDescr)
+# sum : 논리형 자료의 합
+highCorr = sum(abs(descrCor[upper.tri(descrCor)]) > .999)
+# 상관계수가 0.999 이상인 경우가 65개임
+summary(descrCor[upper.tri(descrCor)])
+
+# 0.75 이상의 절대 상관계수를 갖는 예측변수를 제거하는 과정과 그 효과
+highlyCorDescr = findCorrelation(descrCor, cutoff = 0.75)  # 기준 완화
+filteredDescr = filteredDescr[, -highlyCorDescr]
+descrCor2 = cor(filteredDescr)
+summary(descrCor2[upper.tri(descrCor2)])
+```
+
++ findCorrelation() 함수 : 제거해야할 예측변수를 제공함
+
+
+### 2.2.3 예측변수의 변환
+#### (a) 중심화와 척도화
++ preProcess() 함수 : 예측변수에 중심화와 척도화를 포함한 많은 연산 제공
+  + 이는 특정한 데이터 셋으로부터 요구하는 것을 추저한 다음, 이 값을 재계산하지 않고 임의의 데이터 셋에 이들 변환을 적용
+  
++ 예제 3.
+```{r}
+set.seed(200)
+# 1부터 mdrrClass의 길이만큼 생성 -> 1:528
+inTrain = sample(seq(along = mdrrClass), length(mdrrClass) / 2)
+training = filteredDescr[inTrain, ]
+test = filteredDescr[-inTrain, ]
+trainMDRR = mdrrClass[inTrain]
+testMDRR = mdrrClass[-inTrain]
+
+# 중심화와 척도화
+preProcValues = preProcess(training, method = c("center", "scale"))
+trainTransformed = predict(preProcValues, training)
+testTransformed = predict(preProcValues, test)
+```
+
++ 1) 원자료에서 train 50(or 70) : 모형구축 + test 50(or 30) : 모형성능평가
++ 2) 원자료에서 train 40 : 모형구축 + validation 30 : 구축된 모형의 성능 향상(개선, 타당성 검증) + test 30 : 모형 성능 평가
+
+
+#### (b) 박스-콕스 변환
+```{r}
+# 박스-콕스 변환 수행 : method = "BoxCox"
+preProcValues2 = preProcess(training, method = "BoxCox")
+trainBC = predict(preProcValues2, training)
+testBC = predict(preProcValues2, test)
+preProcValues2
+```
+
+### 2.2.4* 기타 전처리 방법
+#### (a) 범주형 변수에 대한 더미변수 생성
++ dummyVars() 함수 : 하나 이상의 요인으로부터 완전한 더미변수 집합을 생성
++ 예제 5.
+```{r}
+library(earth)
+data(etitanic)
+str(etitanic)
+
+# model.matrix{stats} 함수 : (범주의 수 - 1)개 생성 -> 공선성 방지
+# pclass : 2개 + sex : 1개
+head(model.matrix(survived ~ ., data = etitanic))
+# dummyVar() 함수 : 범주의 수만큼 생성 -> 딥러닝 / 신경망에서 많이 씀 -> 역행렬 계산 시 오류x
+# pclass : 3개 + sex : 2개
+dummy.1 = dummyVars(survived ~ ., data = etitanic)
+head(predict(dummy.1, newdata = etitanic))
+```
+
++ 새로 생성된 더미변수는 일부 모형 함수 계산 시 오류가 발생할 수 있음
+
+#### (b) 선형종속성
++ findLinearCombos() 함수 : 행렬의 QR 분해를 사용하여 선형 결합의 집합을 열거
+  + 선형종속성을 없애기 위해 제거할 열 위치의 벡터를 제공
++ 예제 6.
+```{r}
+ltfrDesign = matrix(0, nrow = 6, ncol = 6)
+ltfrDesign[, 1] = c(1, 1, 1, 1, 1, 1)
+ltfrDesign[, 2] = c(1, 1, 1, 0, 0, 0)
+ltfrDesign[, 3] = c(0, 0, 0, 1, 1, 1)
+ltfrDesign[, 4] = c(1, 0, 0, 1, 0, 0)
+ltfrDesign[, 5] = c(0, 1, 0, 0, 1, 0)
+ltfrDesign[, 6] = c(0, 0, 1, 0, 0, 1)
+
+comboInfo = findLinearCombos(ltfrDesign)
+# 3번째 변수는 1, 2의 선형결합으로 만들어진다
+# 6번째 변수는 1, 4, 5의 선형결합으로 만들어진다
+# 3, 6을 제거하면 선형종속의 문제가 사라진다
+comboInfo
+ltfrDesign[, -comboInfo$remove]
+```
+
++ 2열 + 3열 = 1열 / 4열 + 5열 + 6열 = 1열 : 선형종속적
+
+#### (c) 결측값 대치
++ k-근접 이웃(KNN) 이용
++ 예제 7.
+```{r}
+data(airquality)
+summary(airquality)  # 결측값 개수 확인
+imp.1 = preProcess(airquality, method = c("knnImpute"))
+library(RANN)
+imp.2 = predict(imp.1, airquality)  # predict() : 대치된 값 확인
+summary(airquality)
+```
+
+
+#### (d) 군집거리 계산
++ 각 군집중심까지의 마할라노비스 거리가 계산
++ classDist() 함수 : 군집 내에서 주성분분석 수행하여 공분산행렬 문제 해결
++ predict.classDist() 함수 : 군집거리 생성하는 데 사용
++ 예제 8.
+```{r}
+# 훈련용자료로부터 군집중심과 공분산행렬 계산
+trainSet = sample(1:150, 100)
+distData = classDist(iris[trainSet, 1:4], iris$Species[trainSet])
+distData$values
+
+# 제외된(검증용) 자료에 대해 군집중심까지의 마할라노비스 거리 계산
+newDist = predict(distData, iris[-trainSet, 1:4])
+newDist
+
+# 제외된 자료에 대한 군집거리의 산점도행렬
+splom(newDist, groups = iris$Species[-trainSet], auto.key = list(columns = 3))
+```
+
