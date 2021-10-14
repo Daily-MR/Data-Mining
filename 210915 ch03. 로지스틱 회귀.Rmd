@@ -1,0 +1,94 @@
+---
+title: "ch03. 로지스틱 회귀"
+author: "Jeong-Eun Lee"
+date: '2021 9 15 '
+output: html_document
+---
+
++ 로지스틱 회귀 : 반응변수(y)가 범주형일 때 적용되는 회귀분석모형
+  + 사후확률 : 이때 모형의 적합을 통해 추정된 확률
+  + 특징(장점): y가 범주형인데 일반 회귀적합을 하면 (0 or 1 = -$\infty$ ~ $\infty$)의 양변의 구조적 문제가 발생하여 오류 -> log(오즈)로 구조적 문제 해결 / 오증의 완점에서 해석될 수 있음
+    + 회귀계수 $\beta_1$ 해석 : 나머지 변수가 주어질 때 $x_1$이 한 단위 증가할 때마다 $e^{오즈}$가 증가함
+  + 목적 : 예측 + 분류
+    + 분류 : $\pi(x)$가 기준값보다 크면 $Y=1$집단으로, 작으면 $Y=0$집단으로 분류
+  + 형태
+    1) $log(\frac {\pi(x)} {1 - \pi(x)}) = \alpha + \beta_1 x_1 + ... + \beta_k x_k$
+    2) $\pi(x) = \frac {exp(\alpha + \beta_1 x_1 + ... + \beta_k x_k)} {1 + exp(\alpha + \beta_1 x_1 + ... + \beta_k x_k)}$
+    3) = $ \frac {1} {exp{-(\alpha + \beta_1 x_1 + ... + \beta_k x_k)}}$
+    4) $\frac {\pi(x)} {1 - \pi(x)} = e^{\alpha + \beta_1 x_1 + ... + \beta_k x_k}$
+    
+    + 위 식은 표준 로지스틱 분포의 누적분포함수(c.d.f)를 $F(x)$라고 할 때, $\pi(x) = F(\alpha + \beta_1 x_1 + ... + \beta_k x_k)$와 동일한 표현
+      + 의미 : 표준 로지스틱 분포의 누적분포함수로 성공의 확률을 설명한다.
+
++ 프로빗모형 : 위 식에서 $F(*)$ 대신 표준정규분포의 누적함수 $\Phi(*)$로 성공의 확률을 모형화 한 것
+  + 모형 : $\Phi(\pi(x)) = \alpha + \beta_1 x_1 + ... + \beta_k x_k$
+  
++ 예제 1.
+```{r}
+data(iris)
+a = subset(iris, Species == "setosa" | Species == "versicolor")
+a$Species = factor(a$Species)
+str(a)
+```
+
++ Species는 요인형 변수 : setosa(Y = 1), versicolor(Y = 2)
+  + 이 자료를 로지스틱 회귀하면, 큰 숫자(Y = 2) versicolor 오즈를 모형화
+
+```{r}
+b = glm(Species ~ Sepal.Length, data = a, family = binomial)
+summary(b)
+```
+
++ Sepal.Length는 매우 유의한 변수
++ Sepal.Length가 한 단위 증가함에 따라 versicolor(Y = 2)일 오즈가 exp(5.14) = 170배 증가함
++ 이탈도 : Null - Residual = 74.4 정도, p-value = 0.997로 귀무가설 기각x, 잘 적합됨
+
+```{r}
+coef(b)
+exp(coef(b)["Sepal.Length"])
+confint(b, parm = "Sepal.Length")
+exp(confint(b, parm = "Sepal.Length"))
+fitted(b)[c(1:5, 96:100)]  # p(y = 2) : versicolor 일 확률의 추정값
+predict(b, newdata = a[c(1, 50, 51, 100), ], type = "response")
+cdplot(Species ~ Sepal.Length, data = a)
+plot(a$Sepal.Length, a$Species, xlab = "Sepal.Length")
+x = seq(min(a$Sepal.Length), max(a$Sepal.Length), 0.1)
+lines(x, 1 + (1 / (1 + (1 / exp(-27.831 + 5.140 * x)))), type = "l", col = "red")
+```
+
++ Sepal.Length가 커짐에 따라 versicolor의 확률이 증가함
+
++ 예제 2.
+```{r}
+attach(mtcars)
+str(mtcars)
+glm.vs = glm(vs ~ mpg + am, data = mtcars, family = binomial)
+summary(glm.vs)
+```
+
++ 반응변수 : vs(0 : flat engine, 1 : straight engine)
++ mpg 값이 한 단위 증가함에 따라 vs가 1일 오즈가 exp(0.6809) = 1.98배 증가함
++ mpg가 주어질 때 오즈에 대한 am의 효과는 exp(-3.0073) = 0.05배, 즉 변속기가 수동인 경우 자동에 비해 vs = 1의 오즈가 95% 감소
+
+```{r}
+step.vs = step(glm.vs, direction = "backward")
+summary(step.vs)
+ls(glm.vs)
+str(glm.vs)
+anova(glm.vs, test = "Chisq")
+
+1 - pchisq(18.327, 1)
+1 - pchisq(4.887, 1)
+```
+
+
+#### 참고. 일반화선형모형(GLM)에서의 이탈도
++ 포화모형 : 추저해야 할 모수의 수가 데이터의 수와 동일한 모형
++ 영모형 : 절편항만 가지는 모형으로 추정할 모수가 1개
++ 제안모형 : (p개의 모수 + 절편항)을 포함하는 모형으로 추정할 모수가 (p+1)개
++ 이탈도(Null and Residual)는 값이 작을수록 해당모형이 자료를 작 적합함을 의미
+
+#### 참고. 다중회귀에서의 변수선택법
++ 전진선택법 : 가장 작은 모형에서 반응변수에 가장 큰 영향을 주는 설명변수를 차례로 모형에 포함시키되 더 이상 의미 있는 변수가 없을 때 중단하는 방법
++ 후진제거법 : 모든 설명변수를 포함하는 모형에서 기여도가 낮은 변수를 차례로 제거해 나가되 더 이상 제거할 변수가 없을 때 중단하는 방법
++ 단계별 선택법 : 먼저 선택된 변수도 다음 단계에서 제거될 수 있도록 변수선택의 단계마다 체크해나가는 방법
