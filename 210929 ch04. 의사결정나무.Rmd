@@ -1,0 +1,90 @@
+---
+title: "ch04. 의사결정나무"
+author: "Jeong-Eun Lee"
+date: '2021 9 29 '
+output: html_document
+---
+
++ 의사결정나무 : 의사결정규칙을 나무 구조로 나타내어 전체 자료를 몇 개의 소집단으로 분류하거나 예측을 수행하는 분석 방법
+  + 하위노드 : 노드(집단) 내에서는 동질성이, 집단 간에는 이질성이 가장 커지도록 선택
+  + 뿌리노드, 부모노드, 자식노드, 최종노드
+  + 가지분할, 가지치기
+  + 분류나무 : 목표변수가 이산형
+    + 카이제곱통계량의 p-값, 지니지수, 엔트로피지수
+    : 값이 작을수록 자식노드 간 이질성이 큼
+    
+  + 회귀나무 : 목표변수가 연속형
+    + F-통계량의 p-값 : 값이 클수록 자식노드 간이 이질적이므로 이 값이 커지는 방향으로 가지분할 수행
+    + 분산의 감소량 : 이 값이 최대화 되는 방향으로 가지분할 수행
+  
++ 장점 
+  1) 구조가 단순하여 해석이 용이
+  2) 유용한 입력변수의 파악과 예측변수 간의 상호작용 및 비선형성을 고려하여 분석이 수행
+  3) 선형성, 정규성, 등분산성 등의 수학적 가정이 불필요한 비모수적 모형
++ 단점
+  1) 분류 기준값의 경계선 근방의 자룟값에 대해서는 오차가 클 수 있음(비연속성)
+  2) 각 예측변수의 효과를 파악하기 어려움
+  3) 새로운 자료에 대한 예측이 불안정할 수 있음
+  
++ 예제 1. 
+```{r}
+library(rpart)
+c = rpart(Species ~., data = iris)
+c
+plot(c, compress = T, margin = 0.3)
+text(c, cex = 1.5)
+head(predict(c, newdata = iris, type = "class"))
+tail(predict(c, newdata = iris, type = "class"))
+```
+
+```{r}
+library(rpart.plot)
+prp(c, type = 4, extra = 2)
+ls(c)
+c$cptable  # 트리의 크기에 따른 비용-복잡도 모수, 교차타당성오차 제공
+opt = which.min(c$cptable[,"xerror"])  
+cp = c$cptable[opt, "CP"]
+prune.c = prune(c, cp = cp)
+plot(prune.c)
+text(prune.c, use.n = T)
+plotcp(c)
+```
+
++ 예제 2.
+```{r}
+library(party)
+data(stagec)
+str(stagec)
+
+stagec1 = subset(stagec, !is.na(g2))
+stagec2 = subset(stagec1, !is.na(gleason))
+stagec3 = subset(stagec2, !is.na(eet))
+str(stagec3)
+
+set.seed(1234)
+ind = sample(2, nrow(stagec3), replace = TRUE, prob = c(0.7, 0.3))
+ind
+
+trainData = stagec3[ind == 1,]  # n = 102개
+testData = stagec3[ind == 2,]  # n = 32개
+
+tree = ctree(ploidy ~ ., data = trainData)
+tree
+plot(tree)
+
+testPred = predict(tree, newdata = testData)
+table(testPred, testData$ploidy)  # testData 32개
+```
+
++ 예제 3.
+```{r}
+airq = subset(airquality, !is.na(Ozone))
+head(airq)
+airct = ctree(Ozone ~ ., data = airq)
+airct
+plot(airct)
+head(predict(airct, data = airq))
+predict(airct, data = airq, type = "node")
+mean((airq$Ozone - predict(airct))^2)
+```
+
