@@ -1,0 +1,70 @@
+---
+title: "ch05. 댠순 베이즈 분류"
+author: "Jeong-Eun Lee"
+date: '2021 10 6 '
+output: html_document
+---
+
++ 단순 베이즈 분류 : 베이즈 정리에 기반한 방법 & 계산 단순화가 목적
+  + 사후확률이 큰 집단으로 새로운 데이터를 분류함
+  + 사후확률의 계산을 좀 더 편하게 할 수 있도록 예측변수들 간의 독립을 가정함
+  + $p(C_j|x) = \frac {p(C_j)p(x|C_j)} {p(x)}$
+    + posterior prob = prior prob * likelihood
+  + $p(x|C_j) = p(x_1|C_j)p(x_2|C_j)...p(x_d|C_j)$
+
++ 단순 베이즈 분류에서 낮은-빈도 문제를 해결하기 위해서는 모든 속성값-군집 조합에 대한 빈도에 작은 수를 더하여 계산을 수행하면 됨
++ 사전확률을 정할 때에는 모집단의 빈도에 기초하는 것이 더 유연함
++ 각 확률을 계산할 때에는 각 상황을 정규분포라고 가정하고 분포에 값을 대입하여 구함(-> 평균, 분산 활용)
+
++ 예제 1.
+```{r}
+library(e1071)
+data(iris)
+head(iris)
+
+m = naiveBayes(Species ~ ., data = iris)
+m
+
+table(predict(m, iris), iris[, 5])
+```
++ naiveBayes() : 단순 베이즈 분류 수행
+
++ 예제 2.
+```{r}
+data(spam, package = "ElemStatLearn")
+library(klaR)
+
+train.ind = sample(1: nrow(spam), ceiling(nrow(spam) * 2 / 3), replace = FALSE)
+nb.res = NaiveBayes(spam ~ ., data = spam[train.ind, ])
+
+opar = par(mfrow = c(2, 4))
+plot(nb.res)
+
+par(opar)
+
+nb.pred = predict(nb.res, spam[-train.ind, ])
+confusion.mat = table(nb.pred$class, spam[-train.ind, "spam"])
+confusion.mat
+sum(diag(confusion.mat)) / sum(confusion.mat)
+```
++ 패키지 {klaR} : 분류 및 시각화를 위한 다양한 함수 제공
+
++ 결측값 포함하는 자료 처리방법
+  + 훈련단계 : 속성값-군집 조합에 대한 빈도 계산 시 결측값을 포함하는 케이스가 제외됨
+  + 분류단계 : 결측인 속성이 계산과정에서 생략됨
+  
++ 예제 3.
+```{r}
+library(e1071)
+data(HouseVotes84, package = "mlbench")
+head(HouseVotes84)
+summary(HouseVotes84)
+
+model = naiveBayes(Class ~ ., data = HouseVotes84)
+pred = predict(model, HouseVotes84[, -1])
+tab = table(pred, HouseVotes84$Class)
+tab
+table(HouseVotes84$Class)
+sum(tab[row(tab) == col(tab)]) / sum(tab)
+```
+
