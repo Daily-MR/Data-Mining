@@ -1,0 +1,226 @@
+---
+title: "ch07. K-nearest neighbor(K-NN)"
+author: "Jeong Eun Lee"
+date: '2021 10 26 '
+output: html_document
+---
+
++ k-인접이웃(K-nearest neighbor, KNN) : 새로운 데이터에 대해 이와 가장 거리가 가까운 k-개의 과거자료의 결과(집단)를 이용하여 다수결로 분류
+  + 과거 데이터는 저장만 해두고 필요시 비교 수행하는 방식
+  + 반응변수가 범주형 $\rightarrow$ 분류 목적, 연속형 $\rightarrow$ 회귀 목적
+  + 주변 값들의 기여도에 가중 부여 가능(거리에 반비례 / 가까우면 큰 가중)
+  + 특징
+    + k값의 선택에 따라 새로운 데이터에 대한 분류결과가 달라짐 
+    + 사례 기반학습 : 지역 정보만으로 근사 + 모든 계산 후 분류 수행
+    + 단점 : 데이터의 지역 구조에 민감함
+    
+### 예제 1. knn(){class}
+```{r, cache=TRUE}
+library(class)
+data(iris3)
+train = rbind(iris3[1:25,,1], iris3[1:25,,2], iris3[1:25,,3])  # 행렬객체
+test = rbind(iris3[26:50,,1], iris3[26:50,,2], iris3[26:50,,3])
+c1 = factor(c(rep("s", 25), rep("c", 25), rep("v", 25)))
+knn(train, test, c1, k = 3, prob = TRUE)  # prob = TRUE : 확률이 큰 쪽으로 분류
+```
+
++ y 범주형 / trian(앞 25개) + test(뒤 25개)
++ knn 해석
+  + [1] : 실제로 3개 다 S
+  + [75] : 실제로 2개는 v, 1개는 v가 아닌 것
+
+### 예제 2. kNN(){DMwR}
+```{r, cache=TRUE}
+library(DMwR)
+data(iris)
+idxs = sample(1 : nrow(iris), as.integer(0.7 * nrow(iris)))  # train 70%
+trainIris = iris[idxs,]
+testIris = iris[-idxs,]
+# trainIris 자료에서 Species를 y로 하고 나머지 변수를 전부 예측변수로 하는 knn분류 알고리즘을 수행하여라
+# k값의 설정은 분석자가 주관적으로 설정해야하는 사안
+nn3 = kNN(Species ~ ., trainIris, testIris, norm = FALSE, k = 3)
+table(testIris[,'Species'], nn3)
+nn5 = kNN(Species ~ ., trainIris, testIris, norm = TRUE, k = 5)
+table(testIris[,'Species'], nn5)
+```
+
++ knn(){DMwR} vs knn(){class}
+  + 모형식 기반으로 수행, 정규화 옵션 제공
++ 정규화 수행 : 통상적으로 이질적인 자료에 대해서는 정규화를 시키는 것이 바람직함
+  + 이 자료에서는 단위가 다른 변수가 아니기에 정규화의 효과가 크지 않아 결과에 영향을 미치지 않으므로 정규화 수행 x
+  
+### 예제 3. kknn(){kknn}
+```{r, cache=TRUE}
+library(kknn)
+data(iris)
+m = dim(iris)[1]
+val = sample(1:m, size = round(m/3), replace = FALSE, prob = rep(1/m, m))
+iris.learn = iris[-val,]
+iris.valid = iris[val,]
+iris.kknn = kknn(Species ~ ., iris.learn, iris.valid, distance = 1, kernel = "triangular")  # 맨하튼 거리
+summary(iris.kknn)
+fit = fitted(iris.kknn)
+table(iris.valid$Species, fit)
+# s=1, v=2, c=3으로 변환하여 이 1, 2, 3을 문자로 인식
+pcol = as.character(as.numeric(iris.valid$Species))
+# 정분류일 경우 - false(0) - +1 수행 - 1 - green3
+# 오분류일 경우 - true(1) - +1 수행 - 2 - red
+pairs(iris.valid[1:4], pch = pcol,
+      col = c("green3", "red")[(iris.valid$Species != fit) + 1])
+```
+
++ 가중 knn 분류를 제공 $\rightarrow$ 커널밀도함수의 합이 최대인 군집으로 분류를 수행
+  + kernel : rectangular, triangular, epanechnikov, biweight, triweight, cos, inv, gaussian, rank, optimal
++ distance = 1 $\rightarrow$ 맨하튼 거리, distance = 2 $\rightarrow$ 유클리드 거리
+
+### 예제 4. {FNN}, k-NN 회귀
+```{r, cache=TRUE}
+full = data.frame(name = c("McGwire, Mark", "Bonds, Barry", "Helton, Todd",
+                           "Walker, Larry", "ujols, Albert", "Pedroia, Dustin"),
+                  lag1 = c(100, 90, 75, 89, 95, 70),
+                  lag2 = c(120, 80, 95, 79, 92, 90),
+                  Runs = c(65, 120, 105, 99, 65, 100))
+library(kknn)
+train = full[full$name != "Bonds, Barry",]
+test = full[full$name == "Bonds, Barry",]
+# testdata(Bonds, Barry 선수)와 가까운 선수 2명만 선택하여 시가거리에 기반하여 평균을 내어 y를 예측하여라
+k = kknn(Runs ~ lag1 + lag2, train = train, test = test, k = 2, distance = 1)
+fit = fitted(k)
+fit
+names(k)
+k$fitted.values
+k$CL  # class의 행렬
+k$W  # 가중치의 행렬
+k$C  # 인접이웃 위치
+train[c(k$C),]
+```
+
+```{r, cache=TRUE}
+library(FNN)
+# test자료의 lag1, lag2를 이용해 가까운 2개 인접이웃을 train에 대해 찾아라
+get.knnx(data = train[, c("lag1", "lag2")], query = test[,c("lag1", "lag2")], k = 2)  
+train[c(3, 4), "name"]  # 훈련용 자료에서 3, 4번의 name
+```
++ {FNN} : 훈련용 자료에 대해 원하는 질의를 통해 필요한 결과를 얻게 해 줌
++ $nn.dist : 디폴트로 유클리드거리 제공
+
+## 7.3절 {caret}을 이용한 k-NN 분석
+### (a) 표본추출
+```{r, cache=TRUE}
+library(ISLR)
+library(caret)
+```
+
+```{r, cache=TRUE}
+set.seed(100)
+# y 정보를 이용해 층화추출 -> y 정보를 줌으로써 0, 1이 골고루 뽑히게 함
+indxTrain = createDataPartition(y = Smarket$Direction, p = 0.75, list = FALSE)  # 훈련용 / 검증용 자료 나눔
+training = Smarket[indxTrain,]
+testing = Smarket[-indxTrain,]
+prop.table(table(training$Direction)) * 100
+prop.table(table(testing$Direction)) * 100
+prop.table(table(Smarket$Direction)) * 100
+
+```
+
+### (b) 전처리
+```{r, cache=TRUE}
+trainX = training[, names(training) != "Direction"]  # 전처리 시 불편함을 줄이기 위해 반응변수를 제외
+preProcValues = preProcess(x = trainX, method = c("center", "scale"))  # 중심화, 척도화 -> 표준화
+preProcValues
+```
+
+### (c) 훈련과 훈련조율
+```{r, cache=TRUE}
+set.seed(200)
+# 모형평가 시 repeatedcv 방법을 3회 반복하겠다.
+ctrl = trainControl(method = "repeatedcv", repeats = 3)
+knnFit = train(Direction ~ ., data = training, method = "knn", trControl = ctrl,
+               preProcess = c("center", "scale"), tuneLength = 20)
+knnFit  # k-NN 적합 결과
+plot(knnFit)
+```
+
++ 인접이웃의 크기(k)가 29일 때 정확도가 제일 높다.
+
+```{r, cache=TRUE}
+knnPredict = predict(knnFit, newdata = testing)
+confusionMatrix(knnPredict, testing$Direction)  # 정오분류표
+mean(knnPredict == testing$Direction)
+```
++ 정확도 : 89.1%
+
+```{r, cache=TRUE}
+set.seed(300)
+ctrl = trainControl(method = "repeatedcv", repeats = 3,
+                    classProbs = TRUE, summaryFunction = twoClassSummary)
+knnFit = train(Direction ~ ., data = training, method = "knn", trControl = ctrl,
+               preProcess = c("center", "scale"), tuneLength = 20)  
+knnFit
+# knnFit에 대해 0.5 기준을 사용했을 때 민감도, 특이도 값을 그림에 계단형태로 제시하여라
+plot(knnFit, print.thres = 0.5, type = "S")
+```
+
++ summary=twoClassSummary : AUC, 민감도, 특이도 등 성능측도 제공
+  + classProbs = TRUE : 출력된 확률값에 기반하여 계산이 가능하게 하는 옵션으로 위의 측도 계산에 필요
++ tuneLength = 20 : 조율모수의 격자 조절
++ 적합모형은 인접이웃으로 k=25를 선택하였다(AUC 기준 사용)
+
+```{r, cache=TRUE}
+knnPredict = predict(knnFit, newdata = testing)
+confusionMatrix(knnPredict, testing$Direction)  # 정오분류표
+mean(knnPredict == testing$Direction)
+```
++ 정확도 : 88.8% (다소 감소)
+
+```{r, cache=TRUE}
+# ROC 곡선 그리기
+library(pROC)
+knnPredict = predict(knnFit, newdata = testing, type = "prob")
+knnROC = roc(testing$Direction, knnPredict[, "Down"], levels = levels(testing$Direction))
+knnROC
+plot(knnROC, type = "S", print.thres = 0.5)  # 기준값 0.5일 때의 결과를 표시
+```
+
++ AUC : 0.9698로 굉장히 뛰어난 성능
+
+### (d) 랜덤포리스트(method = "rf")를 적용한 결과
+```{r, cache=TRUE}
+set.seed(400)
+ctrl = trainControl(method = "repeatedcv", repeats = 3)
+rfFit = train(Direction ~ ., data = training, method = "rf", trControl = ctrl,
+              preProcess = c("center", "scale"), tuneLength = 20)  # rf : 랜덤포레스트
+rfFit  # mtry는 임의로 선택된 예측변수의 수(조율모수)
+plot(rfFit)
+rfPredict = predict(rfFit, newdata = testing)
+confusionMatrix(rfPredict, testing$Direction)
+mean(rfPredict == testing$Direction)
+```
++ 랜덤포레스트 : 일종의 앙상블 모형으로 대체로 성능이 매우 뛰어난 방법으로 알려져 있다.
++ 조율모수로 2를 선택하는 것이 최적의 모형
++ 정분류율이 100%로 rf가 얼마나 좋은 모형인지를 보여줌
+
++ 클래스 요약함수 사용하여 AUC 기반 모형 구축
+```{r, cache=TRUE}
+set.seed(500)
+ctrl = trainControl(method = "repeatedcv", repeats = 3, classProbs = TRUE,
+                    summaryFunction = twoClassSummary)
+rfFit = train(Direction ~ ., data = training, method = "rf", trControl = ctrl,
+              preProcess = c("center", "scale"), tuneLength = 20)
+rfFit
+plot(rfFit)
+# 몇가지 매개변수로 플롯하기
+plot(rfFit, print.thres = 0.5, type = "S")
+rfPredict = predict(rfFit, newdata = testing)
+confusionMatrix(rfPredict, testing$Direction)
+mean(rfPredict == testing$Direction)
+```
+
+```{r, cache=TRUE}
+library(pROC)
+rfPredict = predict(rfFit, newdata=testing , type="prob")
+rfROC = roc(response = testing$Direction, predictor=rfPredict[,"Down"],
+             levels =levels(rev(testing$Direction)))
+rfROC
+plot(rfROC, type="S", print.thres= 0.5)
+```
