@@ -1,0 +1,176 @@
+---
+title: "ch08. artificial neural networks(ANN)"
+author: "Jeong Eun Lee"
+date: '2021 11 3, 2021 11 10 '
+output: html_document
+---
+
++ 신경망(artificial neural networks, ANN) : 동물의 뇌신경계를 모방하여 분류 또는 예측을 위해 만들어진 모형
+  + 입력 : 개별 신호의 강도에 따라 가중
+  + 활성함수 : 출력 계산
+  + 오차가 작아지는 방향으로 가중치가 조정됨
+
+  + 장점
+    1) 변수의 수가 많거나 입출력 변수 간 복잡한 비선형 관계가 존재할 때 유용
+    2) 잡음에 대해서도 민감하게 반응하지 않음
+  + 단점
+    1) 결과에 대한 해석이 쉽지 않음
+    2) 은닉층의 수와 은닉노드 수의 결정이 어려움
+    3) 초깃값에 따라 전역해가 아닌 지역해로 수렴할 수 있음
+    4) 모형이 복잡하면 훈련과정에 시간이 많이 소요될 수 있음
+
++ 단층신경망(퍼셉트론) : 입력층이 은닉층 없이 직접 출력층에 연결
+$$z = w'x + x_0$$
+  + 가중치 $w$ : 방향을 나타내는 모수
+  + 편의 $w_0$ : 위치를 결정하는 모수
+    + 가중치 $w$와 절편 $w_0$는 학습을 통해 오차제곱합이 최소가 되는 방향으로 갱신됨
+      + 가중치 $w$ 갱신 방법
+      실제 $y_i$, 추정 $\hat{y_i}$ $\rightarrow$ 목적함수 $Q = \sum (g_i - \hat{y_i})$ 이 작아지기를 원하고 추정함
+      $\frac {\partial Q} {\partial w_i} = 0$ 이 되도록 편미분하여 $w$ 값을 구한 후 이 $w$ 값을 이용해서 역으로 적당한 값을 빼주거나 더해주는 방식을 통해 목적함수가 작아지는 방향으로 $w$ 값을 조정함
+      
++ 활성함수의 종류 : 부호 / ReLu / 계단 / 시그모이드 / Softmax / tanh / 가우스
+  + 시그모이드 : 결과는 연속형이며 $0 \le y \le 1$
+    $\rightarrow$ 확장 : tanh 함수($-1 \le y \le 1$)
+    
++ 통계모형을 신경망으로 표현하기
+  1) 다중회귀(MLR) : Q = $\sum (y_i - \hat{y_i})^2$ (SSE) $\rightarrow$ y 연속
+  2) logistig reg : Q = cross entropy $\rightarrow$ y 범주(이산)
+
++ 통계 vs 기계학습, 딥러닝
+  1) 통계 : $\hat{y} = w_0 + \sum w_ix_i \rightarrow \hat{\beta} = (X'X)^{-1}X'y$ 
+    통계적인 관점에서는 추정 시 이론(최소제곱법)에 근거하여 접근함
+    계산이 복잡함
+  2) 기계학습, 딥러닝 : 데이터를 입력시켜 선형결합식을 만든 후 이 선형결합식이 실제 $y$와 얼마나 차이가 나는지, 이 차이가 최소가 되는 방향으로 가중치를 조정하는 방법을 무한히 반복하는 과정을 거쳐 수렴값을 최종 $w$ 값으로 추정
+  단순한 로직으로 시행이 가능함
+  
+### 예제 1. nnet(){nnet}
+```{r, cache=TRUE}
+library(nnet)
+nn.iris = nnet(Species ~ ., data = iris, size = 2, rang = 0.1, decay = 5e-4, maxit = 200)
+summary(nn.iris)
+
+library(devtools)
+source_url('https://gist.githubusercontent.com/Peque/41a9e20d6687f2f3108d/raw/85e14f3a292e126f1454864427e3a189c2fe33f3/nnet_plot_update.r')
+plot.nnet(nn.iris)  # 시각화
+```
+
++ size = 은닉층 노드 수
++ rang = 초기 랜덤 가중치 범위
++ decay = 갱신 폭을 줄이도록 조절하는 모수로 디폴트는 0
++ maxit = 최대 반복수로 디폴트는 100
+
++ 데이터를 입력할 때에는 표준화가 다 된 입력자료가 들어가야한다. 그렇지 않으면 차후에 특정변수가 가중이 더 커지는 문제가 발생하여 weight를 동등하게 가져가기 위해 필수 과정이다. ex) zero-one 표준화
+
++ 은닉층 : 복잡한 모형에서는 노드 많이, 단순한 모형에서는 노드 적게
+  + but, 불필요하게 많으면 과적합 문제 발생
+
++ 선의 굵기는 연결성의 가중치에 비례한다. 이는 예측력은 매우 뛰어나나, 각 가중치의 의미를 해석하는데에는 어려움이 있어 해석력은 떨어진다.
+
+```{r, cache=TRUE}
+library(clusterGeneration)
+library(scales)
+library(reshape)
+plot(nn.iris)
+
+table(iris$Species, predict(nn.iris, iris, type = "class"))  # 정오분류표
+```
+
+
+### 예제 2. neuralnet(){neuralnet}
+```{r, cache=TRUE}
+data(infert, package = "datasets")
+str(infert)
+library(neuralnet)
+# neuralnet() : 역전파 알고리즘을 통해 모형 적합
+net.infert = neuralnet(case ~ age + parity + induced + spontaneous, data = infert, hidden = 2,
+                       err.fct = "ce", linear.output = FALSE, likelihood = TRUE)
+net.infert
+plot(net.infert)  # 시각화
+names(net.infert)  # 추가 정보
+net.infert$result.matrix  # 행렬 정보
+out = cbind(net.infert$covariate, net.infert$net.result[[1]])
+dimnames(out) = list(NULL, c("age", "parity", "induced", "spontaneous", "nn-output"))
+head(out)
+```
+
++ hidden = 은닉층의 노드 수
++ err.fct = 목적함수, 디폴트 : sse(연속형), ce(범주형)
++ act.fct = 활성함수, 디폴트 : logistic
+
++ AIC, BIC : 값이 작을수록 뛰어난 모형
+
+```{r, cache=TRUE}
+head(net.infert$generalized.weights[[1]])  # 일반화가중치
+par(mfrow = c(2, 2))  # 일반화가중치 시각화
+gwplot(net.infert, selected.covariate = "age", min = -2.5, max = 5)
+gwplot(net.infert, selected.covariate = "parity", min = -2.5, max = 5)
+gwplot(net.infert, selected.covariate = "induced", min = -2.5, max = 5)
+gwplot(net.infert, selected.covariate = "spontaneous", min = -2.5, max = 5)
+```
+
++ 일반화가중치 : 각 공변량들의 효과를 나타냄
+  + 로지스틱 회귀에서 회귀계수와 유사하게 해석되나 각 자료점에서 국소적인 기여도를 나타냄
+    + 작은 분산은 선형효과 / 큰 분산은 관측값 공간상에서 변화가 심함 > 비선형적인 효과가 있음을 나타냄
+    
++ 해석
+  plot 1) 일반화 가중치가 변화가 없으므로 나이변수는 y값에 큰 영향을 미치지 않는다.
+  plot 2) 자녀수에 대해서는 음으로 기여하는 비슷한 산포가 나타난다. 각 기여도는 weight의 넓이에 비례하여 1 > 2 > ... > 6이다.
+  
+  plot 3, 4) 일반화 가중치의 분산이 1보다 크므로 비선형 효과를 가진다.
+    
+    $\rightarrow$ 모형 단순화를 위해 age 제외한 3개 변수로 신경망 모형 적합 가능함
+    
+```{r, cache=TRUE}
+# compute() : 각 뉴런의 출력값 계산
+new.output = compute(net.infert, covariate = matrix(c(22, 1, 1, 0,
+                                                      22, 1, 1, 0,
+                                                      22, 1, 0, 1,
+                                                      22, 1, 1, 1),
+                                                    byrow = TRUE, ncol = 4))
+new.output$net.result  # 공변량 조합에 대한 예측결과
+```
++ 사전 낙태의 수에 따라 예측 확률이 증가함(인공1, 자연1이 불임확률 제일 높음)
+
++ confidence.interval() : 가중치에 대한 신뢰구간
++ 다층신경망 : 2개 이상의 은닉층을 가지는 구조
+  + 목적 : 입력벡터 x를 출력벡터 y로 맵핑하는 것
+  + 구조
+    1) 입력층 : 자료벡터, 패턴 받아들임
+    2) 은닉층 : 이전층으로부터 출력을 받아 가중을 취한 후 비선형의 활성함수로 넘김
+    3) 출력층 : 최종 은닉층으로부터 결과를 받아 비선형적으로 결과를 넘겨 목표값을 제공
+  + 은닉층의 한계 
+    1) 과적합 문제
+    2) 학습이 제대로 이루어지지 x(훈련이 어려움)
+    3) 많다고 해서 성능이 개선되지는 않음
+  + 가중치는 학습과정에서 오차의 역전파 알고리즘을 통해 갱신됨
+
++ 단층 vs 다층 : 다층신경망으로 갈수록 더 복잡한 결정 경계면을 만들어낼 수 있어 더 정확한 예측이 가능해짐
+
+  
+### 예제 3. neuralnet(){neuralnet}
+```{r, cache=TRUE}
+set.seed(100)
+library(neuralnet)
+train.input = as.data.frame(runif(50, min = 0, max = 100))
+train.output = sqrt(train.input)
+train.data = cbind(train.input, train.output)
+colnames(train.data) = c("Input", "Output")
+head(train.data)
+
+net.sqrt = neuralnet(Output ~ Input, train.data, hidden = 10, threshold = 0.01)  # 은닉층 1개
+print(net.sqrt)
+plot(net.sqrt)  # 시각화
+
+test.data = as.data.frame((1:10)^2)
+test.out = compute(net.sqrt, test.data)  # 신경망 모형 적용
+ls(test.out)
+print(test.out$net.result)
+
+net2.sqrt = neuralnet(Output ~ Input, train.data, hidden = c(10, 8), threshold = 0.01)  # 은닉층 2개
+plot(net2.sqrt)
+test2.out = compute(net2.sqrt, test.data)
+print(test2.out$net.result)
+```
+
++ set.seed() : 초기값 설정, 일정한 결과 제공
++ threshold = 오차함수의 편미분에 대한 값으로 정지규칙으로 사용
