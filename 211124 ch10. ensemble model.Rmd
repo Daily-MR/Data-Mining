@@ -1,0 +1,158 @@
+---
+title: "ch10. ensemble model"
+author: "Jeong Eun Lee"
+date: '2021 11 24 '
+output: html_document
+---
+
++ 앙상블 모형(emsemble) : 여러개의 분류모형에 의한 결과를 종합하여 분류의 정확도를 높이는 방법
+  + 새로운 자료에 대해 분류기 예측값들의 가중투표를 통해 분류를 수행
+  + 장점
+    1) 평균을 취함으로써 편의를 제거함
+    2) 분산을 감소시킴
+    3) 과적합의 가능성을 줄여줌
+
++ 배깅 : 원 데이터 셋으로부터 크기가 같은 표본을 여러 번 단순임의복원추출하여 각 표본(붓스트랩 표본)에 대해 분류기를 생성한 후 그 결과를 앙상블하는 방법
+  + 반복 추출방법을 사용하기에 같은 데이터가 한 표본에 여러번 추출될 수도 있고, 어떤 데이터는 추출되지 않을 수도 있음
+    + 추출되지 않는 자료는 약 36.8%정도인데 이는 test로 사용되어 train, test로 처음부터 나누지 않아도 된다는 특징을 가지게 함
+      + 장점 : 알고리즘 상에서 자동분류
+      
+## 예제 1. bagging(){adabag}
+```{r, cache=TRUE}
+library(adabag)
+data(iris)
+iris.bagging = bagging(Species ~ ., data = iris, mfinal = 10)  # mfinal = 반복수, 트리 수
+iris.bagging$importance  # 변수의 상대적인 중요도
+plot(iris.bagging$trees[[10]])  # 10번째 모형으로 출력
+text(iris.bagging$trees[[10]])
+pred = predict(iris.bagging, newdata = iris)  # 예측
+table(pred$class, iris[,5])
+```
+
++ 부스팅 : 분류가 잘못된 데이터에 더 큰 가중을 주어 표본을 추출
+  + ex - 아다부스팅
+
+## 예제 2. boosting(){adabag}
+```{r, cache=TRUE}
+library(adabag)
+data(iris)
+boo.adabag = boosting(Species ~ ., data = iris, boos = TRUE, mfinal = 10)
+boo.adabag$importance  # 예제 1에 비해 중요도가 골고루 분포
+plot(boo.adabag$trees[[10]])  # 예제 1에 비해 훨씬 복잡함
+text(boo.adabag$trees[[10]])
+pred = predict(boo.adabag, newdata = iris)
+tb = table(pred$class, iris[, 5])
+tb  # 오분류 zero
+error.rpart = 1 - (sum(diag(tb)) / sum(tb))
+error.rpart
+```
+
+## 예제 3. ada(){ada}
+```{r, cache=TRUE}
+library(ada)
+data(iris)
+iris[iris$Species != "setosa", ] -> iris  # setosa 50개 자료 제외
+n = dim(iris)[1]
+trind = sample(1:n, floor(.6*n), FALSE)
+teind = setdiff(1:n, trind)
+# [as.numeric(iris[, 5])-1] : 0, 1, 2가 차례로 50개(총 150개)
+iris[,5] = as.factor((levels(iris[,5])[2:3])[as.numeric(iris[, 5])-1]) 
+gdis = ada(Species ~ ., data = iris[trind, ], iter = 20, nu = 1, type = "discrete")
+# nu = 부스팅 축소 모수로 디폴트는 1
+# type = 부스팅 알고리즘 지정, 디폴트는 discrete
+gdis = addtest(gdis, iris[teind, -5], iris[teind, 5])
+gdis  # OOB : 포함되지 않은 자료에 대한 test 결과
+plot(gdis, TRUE, TRUE)  # kappa 계수 + 훈련용, 검증용 자료 둘 다 ploting
+varplot(gdis)  # 변수의 중요도도
+# maxvar = 변수의 수 지정
+pairs(gdis, iris[trind, -5], maxvar = 4)  # 두 예측변수의 조합별로 분류된 결과를 보여줌줌
+```
+
++ random forest : bagging + 변수 임의선택
+  + 데이터 전체 중 최적을 찾는 것(bagging)이 아니라 몇 개를 임의로 선택해서 그 중 최적을 찾음
+  + 예측변수들을 임의로 추출하고, 추출된 변수 내에서 최적의 분할을 만들어가는 방법
+    + 분류 : 다수결, 회귀 : 평균
+  + 다양한 의견으로 다양한 모형을 만들 수 있음
+
+## 예제 4. randomForest()
+```{r, cache=TRUE}
+library(party)
+data(stagec)
+str(stagec)
+stagec1 = subset(stagec, !is.na(g2))
+stagec2 = subset(stagec1, !is.na(gleason))
+stagec3 = subset(stagec2, !is.na(eet))
+str(stagec3)
+set.seed(1234)
+ind = sample(2, nrow(stagec3), replace = TRUE, prob = c(0.7, 0.3))
+ind
+trainData = stagec3[ind == 1,]  # n = 102개
+testData = stagec3[ind == 2,]  # n = 32개
+
+library(randomForest)
+# proximity = 개체들 간의 근접도 행렬 제공 : 동일한 최종노드에 포함되는 빈도에 기초함
+rf = randomForest(ploidy ~ ., data = trainData, ntree = 100, proximity = TRUE)
+table(predict(rf), trainData$ploidy)
+print(rf)
+plot(rf)  # 트리 수에 따른 종속변수의 범주별 오분류율
+importance(rf)  # 변수의 중요도
+varImpPlot(rf)
+```
+
++ 랜덤포리스트에서는 별도의 검증용 데이터를 사용하지 않더라도 붓스트랩 샘플과정에서 제외된(out-of-bag) 자료를 사용하여 검증을 실시할 수 있다.
++ 변수의 중요도 : 각 변수로 인한 불순도의 평균 감소량이 클수록 순수도가 증가하여 변수의 중요도가 높음
+
+```{r, cache=TRUE}
+rf.pred = predict(rf, newdata = testData)
+table(rf.pred, testData$ploidy)
+plot(margin(rf))  # 마진
+```
+
++ 마진 : 정분류를 수행한 비율에서 다른 클래스로 분류한 비율의 최댓값을 뺀 값
+  + 양의 마진 : 정확한 분류를 의미, 음은 그 반대
+  
+### 추가 예제. cforest(){party}
+```{r, cache=TRUE}
+set.seed(12345)
+cf = cforest(ploidy ~ ., data = trainData)
+cf.pred = predict(cf, newdata = testData, OOB = TRUE, type = "response")
+table(cf.pred, testData$ploidy)
+```
+
+## 10.5절 {caret}를 이용한 랜덤포리스트
+```{r, cache=TRUE}
+require(caret)
+require(ggplot2)
+require(randomForest)
+
+# 자료 읽기
+training_URL = "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_URL = "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+training = read.csv(training_URL, na.strings = c("NA",""))
+test = read.csv(test_URL, na.strings = c("NA",""))
+
+# 불필요한 열 제외
+training = training[, 7:160]
+test = test[, 7:160]
+
+# 결측치 제거
+mostly_data = apply(!is.na(training), 2, sum) > 19621
+training = training[, mostly_data]
+test = test[, mostly_data]
+dim(training)  # 결측이 없는 열의 수 = 54
+
+# train 설정
+InTrain = createDataPartition(y = training$classe, p=0.3, list=FALSE)
+# list= 결과를 list로 저장할지의 여부
+training1 = training[InTrain,]
+
+# {caret}을 이용한 랜덤포레스트 수행
+library(caret)
+# 5-fold cross validation
+# prox = 근접도행렬
+rf_model = train(classe ~ ., data = training1, method = "rf", trControl = trainControl(method = "cv", number = 5),
+                  prox = TRUE, allowParallel = TRUE)
+print(rf_model)  # mtry는 매 분할에서 임의로 선택될 후보 변수의 수
+print(rf_model$finalModel)  # 정확도 : 1 - OOB error rate = 99.15%
+```
+
