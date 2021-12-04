@@ -1,0 +1,105 @@
+---
+title: "ch11. association rule"
+author: "Jeong Eun Lee"
+date: '2021 12 1 '
+output: html_document
+---
+
++ 연관규칙 학습 : 대형 DB에서 변수 간의 흥미로운 관계를 발견하기 위한 규칙-기반 기계학습 방법
+  + ex) {양파, 감자} $\rightarrow$ {버거}
+  + 특징 
+    1) 프로모션 가격, 제품 배치, 묶음 할인 같은 마켓팅 활동에 관한 결정을 위한 기초자료로 사용될 수 있다.
+    2) 일반적으로 트랜잭션 내에서 또는 트랜잭션 전반에서 항목의 순서는 고려하지 않는다.
+    
++ 지지도(support) = $P(X \cup Y)$
+  + 전체 구매건수 가운데 상품 X와 Y를 동시에 구매한 비율
++ 신뢰도(confidence) = $P(Y|X) = \frac {P(X \cup Y)} {P(X)} = \frac {support} {P(X)}$
+  + 상품 X를 구매한 건수 가운데 Y도 같이 구매한 비율
++ 향상도(lift) = $\frac {P(Y|X)} {P(Y)} = \frac {P(X \cup Y)} {P(X)P(Y)} = \frac {confidence} {P(Y)}$
+  + 전체에서 상품 Y를 구매한 비율에 비해 X를 구매한 고객이 Y를 구매한 비율이 몇 배인가
+  + ex) lift = 3 : 전체 중 Y를 구매한 비율보다 X를 구매한 고객이 Y를 구매한 비율이 3배 높다.
+    + 따라서 Y를 팔기 위해선 X를 구매한 고객을 기준으로 집중 마켓팅하면 상품이 더 잘 팔릴 것이다.
+  
++ 알고리즘
+  (a) Apriori 알고리즘 : 최소지지도 이상을 갖는 항목집합인 빈발항목집합을 추출하는 방법
+    + 규칙1 : 한 항목집합이 빈발하다면 이 항목집합의 모든 부분집합은 역시 빈발항목집합이다.
+    + 규칙2 : 한 항목집합이 비빈발하다면 이 항목집합을 포함하는 모든 집합은 비빈발항목집합이다.
+
+  (b) FP-성장 알고리즘 : 후보 빈발항목집합 생성 없이 FP-Tree를 이용하여 빈발항목집합을 추출하기 위해 고안된 방법
+    + 불필요한 후보 빈발항목집합을 생성하지 않음으로써, Apriori 알고리즘보다 빠르게 빈발항목집합을 추출할 수 있음
+
+## 예제 1. Apriori 알고리즘, apriori{arules}
+```{r, cache=TRUE}
+data(Titanic)
+titan.df = as.data.frame(Titanic)
+head(titan.df)
+sum(table(titan.df))
+summary(titan.df)
+
+# 자료 형식변환
+titanic = NULL
+for(i in 1:4){
+  titanic = cbind(titanic, rep(as.character(titan.df[, i]), titan.df$Freq))
+}
+titanic = as.data.frame(titanic)
+names(titanic) = names(titan.df)[1:4]
+head(titanic)
+tail(titanic)
+sum(table(titanic))
+summary(titanic)
+
+# 연관규칙 분석
+library(arules)
+rules.all = apriori(titanic)  # 모든 규칙 생성
+options(digits = 3)
+inspect(rules.all)  # 저장된 규칙 출력
+```
+
++ 결과 해석(X : lhs, Y : rhs)
+  1) support 0.950 : 전체에서 adult의 비율
+  2) confidence 0.916 : 2등급에서 adult의 비율
+  3) lift 1.033 : 전체 중 어른의 비율보다 1등석에서 어른의 비율이 더 크다
+  
+```{r, cache=TRUE}
+# Y제한(survived)
+# 설정값 변경 : 최소부분집합크기 = 2, 최소지지도 = 0.005, 최소신뢰도 = 0.8
+rules = apriori(titanic, control = list(verbose = F),
+                parameter = list(minlen = 2, supp = 0.005, conf = 0.8),
+                appearance = list(rhs = c("Survived=No", "Survived=Yes"),
+                                  default = "lhs"))
+rules.sorted = sort(rules, by = "lift")  # 향상도 기준으로 정렬
+inspect(rules.sorted)  # 중복되는 규칙이 존재함
+
+# 중복되는 규칙 
+subset.matrix = is.subset(rules.sorted, rules.sorted)
+subset.matrix
+subset.matrix[lower.tri(subset.matrix, diag = T)] <- FALSE  # 상삼각행렬
+subset.matrix
+redundant <- colSums(subset.matrix, na.rm = T) >= 1  # 열의 합 계산
+redundant
+which(redundant)  # 데이터 위치(index) 확인
+
+rules.pruned = rules.sorted[!redundant]  # 중복 제거
+rules.pruned
+```
+
+```{r, cache=TRUE}
+# 시각화
+# library(arulesViz)
+# plot(rules.all)
+# plot(rules.all, shading = "order")  # 규칙 번호에 따라 음영부여(order 번호가 클수록 규칙번호가 큼)
+# plot(rules.all, method = "grouped")  # 원의 크기는 지지도, 색이 진할수록 향상도가 큼
+# 
+# plot(rules.sorted)  # 12개 규칙
+# plot(rules.sorted, method = "grouped")
+# plot(rules.sorted, method = "graph", control = list(type = "items"))  # item = 변수별 범주 수의 합, 10개(4+2+2+2)
+# 
+# plot(rules.sorted, method = "paracoord", control = list(reorder = TRUE))  # 평행좌표그램
+# plot(rules.sorted, measure = c("support", "lift"), shading = "confidence", interactive = TRUE)  # 대화식그림
+# 
+# plot(rules.sorted, method = "matrix", measure = "lift")  # 행렬-기반 시각화
+# plot(rules.sorted, method = "matrix", measure = "lift", control = list(reorder = TRUE))
+# plot(rules.sorted, method = "matrix", measure = c("lift", "confidence"), control = list(reorder = TRUE))
+# plot(rules.sorted, method = "matrix3D", measure = "lift", control = list(reorder = TRUE))
+```
+
